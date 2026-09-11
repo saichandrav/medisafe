@@ -98,23 +98,32 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
-app.use('/api', apiLimiter);
+// API Router with Rate Limiting
+const apiRouter = express.Router();
+apiRouter.use(apiLimiter);
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/medications', medicationRoutes);
-app.use('/api/adherence', adherenceRoutes);
-app.use('/api/caregivers', caregiverRoutes);
-app.use('/api/doctor', doctorRoutes);
-app.use('/api/pharmacist', pharmacistRoutes);
-app.use('/api/communications', communicationRoutes);
-app.use('/api/reports', reportRoutes);
+apiRouter.use('/auth', authRoutes);
+apiRouter.use('/medications', medicationRoutes);
+apiRouter.use('/adherence', adherenceRoutes);
+apiRouter.use('/caregivers', caregiverRoutes);
+apiRouter.use('/doctor', doctorRoutes);
+apiRouter.use('/pharmacist', pharmacistRoutes);
+apiRouter.use('/communications', communicationRoutes);
+apiRouter.use('/reports', reportRoutes);
+
+// Mount router on both '/api' (e.g. /api/auth/send-otp) and '/' (e.g. /auth/send-otp)
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
 
 app.get('/', (req, res) => {
   res.json({
     name: 'MedSafe Medication Management API',
     status: 'Running',
     version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth or /auth',
+      medications: '/api/medications or /medications',
+    },
   });
 });
 

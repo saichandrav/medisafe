@@ -1,4 +1,9 @@
-const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+// Normalize API URL: handles bare domains (https://medisafe-djpq.onrender.com) and ensures /api is present
+let rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
+if (!rawBase.endsWith('/api')) {
+  rawBase += '/api';
+}
+const API = rawBase;
 
 const request = async (endpoint, options = {}) => {
   const headers = {
