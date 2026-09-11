@@ -198,4 +198,10 @@ export const communicationApi = {
   markRead: (id) => request(`/communications/${id}/read`, { method: 'PATCH' }),
 };
 
+export const reportApi = {
+  getMyReports: (patientId = '') => request(`/reports/my-reports${patientId ? `?patientId=${encodeURIComponent(patientId)}` : ''}`),
+  getReportById: (id) => request(`/reports/${id}`),
+};
+
+
 

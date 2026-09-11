@@ -46,7 +46,7 @@ function MainApp() {
       doctor: ['doctor', 'profile'],
       caregiver: ['caregiver', 'caregivers', 'profile'],
       pharmacist: ['pharmacist', 'profile'],
-      patient: ['dashboard', 'medications', 'adherence', 'caregivers', 'profile']
+      patient: ['dashboard', 'reports', 'medications', 'adherence', 'caregivers', 'profile']
     };
     const valid = allowedTabs[role] || allowedTabs.patient;
     if (!valid.includes(activeTab)) {
@@ -69,6 +69,7 @@ function MainApp() {
   // Define tab navigation based on role
   let tabs = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'reports', label: 'Doctor Reports' },
     { id: 'medications', label: 'Medications' },
     { id: 'adherence', label: 'Adherence' },
     { id: 'caregivers', label: 'Caregivers' },
@@ -374,7 +375,9 @@ function MainApp() {
         {activeTab === 'doctor' && <DoctorDashboard />}
         {activeTab === 'caregiver' && <CaregiverDashboard />}
         {activeTab === 'pharmacist' && <PharmacistDashboard />}
-        {activeTab === 'dashboard' && <Dashboard onNavigate={(tab) => setActiveTab(tab)} />}
+        {(activeTab === 'dashboard' || activeTab === 'reports') && (
+          <Dashboard activeSection={activeTab === 'reports' ? 'reports' : 'overview'} onNavigate={(tab) => setActiveTab(tab)} />
+        )}
         {activeTab === 'medications' && <MedicationsPage />}
         {activeTab === 'adherence' && <AdherencePage />}
         {activeTab === 'caregivers' && <CaregiversPage />}

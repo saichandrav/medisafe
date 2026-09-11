@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { medApi, adherenceApi } from '../services/api';
+import { medApi, adherenceApi, reportApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { sanitizeHealthText } from '../utils/sanitize';
 
-export default function Dashboard({ onNavigate }) {
+export default function Dashboard({ onNavigate, activeSection = 'overview' }) {
   const { user } = useAuth();
   const [schedule, setSchedule] = useState([]);
   const [stats, setStats] = useState(null);
@@ -21,6 +21,14 @@ export default function Dashboard({ onNavigate }) {
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
 
+  // Doctor Uploaded Reports & Clinical Dossier State
+  const [reports, setReports] = useState([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [selectedReportFilter, setSelectedReportFilter] = useState('all');
+  const [reportSearchQuery, setReportSearchQuery] = useState('');
+  const [showReportsModal, setShowReportsModal] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+
   // Medication Intake Alerts & Reminders State
   const [alerts, setAlerts] = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
@@ -36,15 +44,23 @@ export default function Dashboard({ onNavigate }) {
   const [submittingRefill, setSubmittingRefill] = useState(false);
   const [refillSuccessMsg, setRefillSuccessMsg] = useState('');
 
+  // Open reports modal if navigated via direct reports tab
+  useEffect(() => {
+    if (activeSection === 'reports') {
+      setShowReportsModal(true);
+    }
+  }, [activeSection]);
+
   const fetchData = async (d = statsWindow, medId = selectedMedFilter) => {
     setError('');
     try {
-      const [schedRes, statsRes, conflictsRes, refillRes, medsRes] = await Promise.all([
+      const [schedRes, statsRes, conflictsRes, refillRes, medsRes, reportsRes] = await Promise.all([
         medApi.todaySchedule(),
         adherenceApi.stats(d, medId === 'all' ? '' : medId),
         medApi.conflicts(),
         medApi.myRefillRequests().catch(() => ({ refillRequests: [] })),
         medApi.getAll(true).catch(() => ({ medications: [] })),
+        reportApi.getMyReports().catch(() => ({ reports: [] })),
       ]);
       setSchedule(schedRes.schedule || []);
       setAlerts(schedRes.alerts || []);
@@ -55,6 +71,7 @@ export default function Dashboard({ onNavigate }) {
       setConflicts(conflictsRes.conflicts || []);
       setRefillRequests(refillRes.refillRequests || []);
       setAllMedications(medsRes.medications || []);
+      setReports(reportsRes.reports || []);
     } catch (err) {
       console.error('Dashboard fetch error:', err);
       setError('Unable to load your live medication schedule. Please check your connection.');
@@ -349,15 +366,31 @@ export default function Dashboard({ onNavigate }) {
           </p>
         </div>
 
-        {onNavigate && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleOpenRefill(schedule[0]?.medicationId || '')}
-              className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-3 py-1.5 rounded-lg border border-amber-300 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              Request Refill
-            </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowReportsModal(true)}
+            className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold px-3 py-1.5 rounded-lg border border-blue-300 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+            title="View medical reports, BP tests, blood sugar tests & attachments uploaded by your doctor"
+          >
+            <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Doctor Reports</span>
+            {reports.length > 0 && (
+              <span className="bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                {reports.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenRefill(schedule[0]?.medicationId || '')}
+            className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-3 py-1.5 rounded-lg border border-amber-300 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            Request Refill
+          </button>
+          {onNavigate && (
             <button
               type="button"
               onClick={() => onNavigate('caregivers')}
@@ -365,8 +398,8 @@ export default function Dashboard({ onNavigate }) {
             >
               Caregiver Access
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Action Error Alert with Dismiss */}
@@ -1144,6 +1177,336 @@ export default function Dashboard({ onNavigate }) {
                 </div>
               )}
             </div>
+
+            {/* Doctor Clinical Reports & Diagnostic Records Section */}
+            <div id="doctor-reports-section" className="space-y-4 pt-4 border-t">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h4 className="font-extrabold text-gray-900 text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>Doctor Clinical Reports & Diagnostic Records</span>
+                    {reports.length > 0 && (
+                      <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-200">
+                        {reports.length} Filed
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    Diagnostic summaries, blood pressure exams, glucose logs & document attachments uploaded by your doctor
+                  </p>
+                </div>
+
+                {reports.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowReportsModal(true)}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <span>Open Full Dossier Modal</span>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Filters & Search Toolbar */}
+              {reports.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-gray-50/80 p-2.5 rounded-xl border border-gray-200">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: 'all', label: `All (${reports.length})` },
+                      { id: 'bp_report', label: `Blood Pressure (${reports.filter((r) => r.reportType === 'bp_report').length})` },
+                      { id: 'sugar_report', label: `Blood Sugar (${reports.filter((r) => r.reportType === 'sugar_report').length})` },
+                      { id: 'lab_report', label: `Lab (${reports.filter((r) => r.reportType === 'lab_report').length})` },
+                      { id: 'radiology', label: `Scans (${reports.filter((r) => r.reportType === 'radiology').length})` },
+                      { id: 'consultation', label: `Consultations (${reports.filter((r) => r.reportType === 'consultation' || r.reportType === 'diagnosis').length})` },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setSelectedReportFilter(tab.id)}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          selectedReportFilter === tab.id
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white hover:bg-gray-100 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative w-full sm:w-56">
+                    <input
+                      type="text"
+                      placeholder="Search reports or doctor..."
+                      value={reportSearchQuery}
+                      onChange={(e) => setReportSearchQuery(e.target.value)}
+                      className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                </div>
+              )}
+
+              {/* Reports List */}
+              {reports.length === 0 ? (
+                <div className="p-6 bg-gradient-to-r from-blue-50/40 to-indigo-50/30 rounded-2xl border border-dashed border-blue-200 text-center space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <h5 className="font-bold text-xs text-gray-800">No medical reports uploaded by your doctor yet</h5>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto">
+                    When your healthcare provider records blood pressure measurements, blood sugar test results, or uploads medical PDFs and diagnostic photos, they will appear here.
+                  </p>
+                </div>
+              ) : (() => {
+                const filtered = reports.filter((r) => {
+                  if (selectedReportFilter !== 'all' && r.reportType !== selectedReportFilter) {
+                    if (selectedReportFilter === 'consultation' && r.reportType === 'diagnosis') return true;
+                    return false;
+                  }
+                  if (reportSearchQuery.trim()) {
+                    const q = reportSearchQuery.toLowerCase();
+                    const matchTitle = r.title?.toLowerCase().includes(q);
+                    const matchDoc = r.doctorName?.toLowerCase().includes(q);
+                    const matchDiag = r.diagnosis?.toLowerCase().includes(q);
+                    const matchNotes = r.clinicalNotes?.toLowerCase().includes(q);
+                    const matchRec = r.recommendations?.toLowerCase().includes(q);
+                    const matchFile = r.attachment?.fileName?.toLowerCase().includes(q);
+                    return matchTitle || matchDoc || matchDiag || matchNotes || matchRec || matchFile;
+                  }
+                  return true;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="p-4 bg-gray-50 rounded-xl text-center text-xs text-gray-500 border">
+                      No reports match your search query or selected filter.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {filtered.map((report) => {
+                      const isBp = report.reportType === 'bp_report';
+                      const isSugar = report.reportType === 'sugar_report';
+                      const isLab = report.reportType === 'lab_report';
+                      const isRadiology = report.reportType === 'radiology';
+
+                      const badgeStyle = isBp
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : isSugar
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : isLab
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : isRadiology
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200';
+
+                      const isImageAttachment = report.attachment?.fileType?.startsWith('image/') || report.attachment?.fileData?.startsWith('data:image/');
+                      const isPdfAttachment = report.attachment?.fileType === 'application/pdf' || report.attachment?.fileData?.startsWith('data:application/pdf') || report.attachment?.fileName?.toLowerCase()?.endsWith('.pdf');
+
+                      return (
+                        <div
+                          key={report._id}
+                          className="bg-white p-4 rounded-xl border border-gray-200/90 shadow-xs space-y-3 hover:border-blue-300 transition-all flex flex-col justify-between"
+                        >
+                          <div className="space-y-2.5">
+                            {/* Card Header */}
+                            <div className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2.5">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="font-extrabold text-gray-900 text-sm">
+                                    {report.title}
+                                  </h5>
+                                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${badgeStyle}`}>
+                                    {report.reportType?.replace(/_/g, ' ') || 'REPORT'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-0.5">
+                                  {report.testDate && (
+                                    <>
+                                      Test Date: <strong className="text-gray-700">{new Date(report.testDate).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</strong> •{' '}
+                                    </>
+                                  )}
+                                  Doctor: <strong className="text-gray-800">{report.doctorName || 'Physician'}</strong>
+                                </p>
+                              </div>
+
+                              {report.attachment && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 shrink-0">
+                                  {isPdfAttachment ? 'PDF Attached' : isImageAttachment ? 'Photo Attached' : 'File Attached'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Diagnosis Banner */}
+                            {report.diagnosis && (
+                              <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-950 flex items-start gap-1.5">
+                                <span className="font-bold text-amber-800 shrink-0">Diagnosis:</span>
+                                <span>{report.diagnosis}</span>
+                              </div>
+                            )}
+
+                            {/* Vitals Highlights */}
+                            {report.vitals && (
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                {(report.vitals.bloodPressure || (report.vitals.systolic && report.vitals.diastolic)) && (
+                                  <div className="bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg text-rose-900 flex items-center gap-1 font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                                    BP:{' '}
+                                    <strong className="font-bold text-rose-950">
+                                      {report.vitals.systolic && report.vitals.diastolic
+                                        ? `${report.vitals.systolic}/${report.vitals.diastolic} mmHg`
+                                        : report.vitals.bloodPressure}
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {report.vitals.heartRate && (
+                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                    Pulse: <strong className="text-gray-900">{report.vitals.heartRate} bpm</strong>
+                                  </span>
+                                )}
+
+                                {(report.vitals.bloodSugar || report.vitals.fastingSugar || report.vitals.postPrandialSugar || report.vitals.hba1c) && (
+                                  <div className="bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg text-amber-900 flex items-center gap-1 font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                                    Glucose:{' '}
+                                    <strong className="font-bold text-amber-950">
+                                      {report.vitals.fastingSugar && `Fasting: ${report.vitals.fastingSugar} mg/dL `}
+                                      {report.vitals.postPrandialSugar && `| PP: ${report.vitals.postPrandialSugar} mg/dL `}
+                                      {report.vitals.hba1c && `| HbA1c: ${report.vitals.hba1c}% `}
+                                      {!report.vitals.fastingSugar && !report.vitals.postPrandialSugar && !report.vitals.hba1c && report.vitals.bloodSugar}
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {report.vitals.temperature && (
+                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                    Temp: <strong className="text-gray-900">{report.vitals.temperature}</strong>
+                                  </span>
+                                )}
+
+                                {report.vitals.weight && (
+                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                    Weight: <strong className="text-gray-900">{report.vitals.weight}</strong>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Clinical Observations */}
+                            {report.clinicalNotes && (
+                              <div className="text-xs text-gray-700 space-y-1">
+                                <span className="font-semibold text-gray-500">Doctor's Observations:</span>
+                                <p className="bg-gray-50 p-2.5 rounded-lg border border-gray-100 whitespace-pre-line text-xs">
+                                  {report.clinicalNotes}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Recommendations */}
+                            {report.recommendations && (
+                              <div className="text-xs text-emerald-950 space-y-1">
+                                <span className="font-semibold text-emerald-700">Follow-Up & Instructions:</span>
+                                <p className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200 whitespace-pre-line text-xs font-medium">
+                                  {report.recommendations}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* File / Document Attachment Row */}
+                          {report.attachment && report.attachment.fileData && (
+                            <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2 bg-slate-50/70 p-2.5 rounded-lg">
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                {isImageAttachment ? (
+                                  <div
+                                    onClick={() => setPreviewAttachment(report.attachment)}
+                                    className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 bg-white shrink-0 cursor-pointer shadow-2xs hover:opacity-90 transition-opacity"
+                                    title="Click to view photo"
+                                  >
+                                    <img
+                                      src={report.attachment.fileData}
+                                      alt={report.attachment.fileName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-red-100 text-red-700 border border-red-200 flex flex-col items-center justify-center shrink-0">
+                                    <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <span className="text-[7px] font-black uppercase">PDF</span>
+                                  </div>
+                                )}
+                                <div className="truncate">
+                                  <p className="text-[11px] font-bold text-gray-800 truncate">
+                                    {report.attachment.fileName || 'Report Attachment'}
+                                  </p>
+                                  <p className="text-[9px] text-gray-500">
+                                    {report.attachment.fileSize ? `${(report.attachment.fileSize / 1024).toFixed(1)} KB` : 'File ready'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isImageAttachment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewAttachment(report.attachment)}
+                                    className="text-[11px] font-bold px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    View
+                                  </button>
+                                )}
+
+                                {isPdfAttachment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newWindow = window.open();
+                                      if (newWindow) {
+                                        newWindow.document.write(
+                                          `<iframe src="${report.attachment.fileData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`
+                                        );
+                                      }
+                                    }}
+                                    className="text-[11px] font-bold px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    Open PDF
+                                  </button>
+                                )}
+
+                                <a
+                                  href={report.attachment.fileData}
+                                  download={report.attachment.fileName || 'medical-report'}
+                                  className="text-[11px] font-bold px-2.5 py-1 bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  Download
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           {/* Safety Alerts / Drug Conflicts */}
@@ -1252,6 +1615,401 @@ export default function Dashboard({ onNavigate }) {
               </>
             )}
           </form>
+        </div>
+      )}
+
+      {/* MODAL: Doctor Clinical Reports & Diagnostic Dossier */}
+      {showReportsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-gray-200 max-h-[92vh] flex flex-col my-auto overflow-hidden animate-in zoom-in-95 duration-100">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50/70 to-indigo-50/40 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                    Doctor Clinical Reports & Diagnostic Records
+                    {reports.length > 0 && (
+                      <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full border border-blue-200">
+                        {reports.length}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Verified clinical observations, BP examinations, blood sugar tests & attachments uploaded by your doctor
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowReportsModal(false)}
+                className="text-gray-400 hover:text-gray-700 text-xl font-bold p-1 rounded-lg hover:bg-white transition-colors cursor-pointer"
+                title="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Search & Filter Bar */}
+            <div className="p-4 border-b border-gray-100 bg-gray-50/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto">
+                {[
+                  { id: 'all', label: `All (${reports.length})` },
+                  { id: 'bp_report', label: `Blood Pressure (${reports.filter((r) => r.reportType === 'bp_report').length})` },
+                  { id: 'sugar_report', label: `Blood Sugar (${reports.filter((r) => r.reportType === 'sugar_report').length})` },
+                  { id: 'lab_report', label: `Lab (${reports.filter((r) => r.reportType === 'lab_report').length})` },
+                  { id: 'radiology', label: `Scans (${reports.filter((r) => r.reportType === 'radiology').length})` },
+                  { id: 'consultation', label: `Consultations (${reports.filter((r) => r.reportType === 'consultation' || r.reportType === 'diagnosis').length})` },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSelectedReportFilter(tab.id)}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                      selectedReportFilter === tab.id
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white hover:bg-gray-100 text-gray-700 border-gray-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-60 shrink-0">
+                <input
+                  type="text"
+                  placeholder="Filter by diagnosis or doctor..."
+                  value={reportSearchQuery}
+                  onChange={(e) => setReportSearchQuery(e.target.value)}
+                  className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Modal Body: Reports Grid */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-4 max-h-[60vh]">
+              {reports.length === 0 ? (
+                <div className="p-8 text-center text-xs text-gray-500 border border-dashed rounded-xl bg-gray-50/50 space-y-2">
+                  <p className="font-bold text-gray-700">No clinical reports filed in your medical profile yet.</p>
+                  <p className="text-gray-400 max-w-sm mx-auto">
+                    When your consulting physician adds BP tests, blood sugar readings, or attaches diagnostic documents, they will appear here.
+                  </p>
+                </div>
+              ) : (() => {
+                const filtered = reports.filter((r) => {
+                  if (selectedReportFilter !== 'all' && r.reportType !== selectedReportFilter) {
+                    if (selectedReportFilter === 'consultation' && r.reportType === 'diagnosis') return true;
+                    return false;
+                  }
+                  if (reportSearchQuery.trim()) {
+                    const q = reportSearchQuery.toLowerCase();
+                    const matchTitle = r.title?.toLowerCase().includes(q);
+                    const matchDoc = r.doctorName?.toLowerCase().includes(q);
+                    const matchDiag = r.diagnosis?.toLowerCase().includes(q);
+                    const matchNotes = r.clinicalNotes?.toLowerCase().includes(q);
+                    const matchRec = r.recommendations?.toLowerCase().includes(q);
+                    const matchFile = r.attachment?.fileName?.toLowerCase().includes(q);
+                    return matchTitle || matchDoc || matchDiag || matchNotes || matchRec || matchFile;
+                  }
+                  return true;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="p-6 text-center text-xs text-gray-500 border rounded-xl bg-gray-50">
+                      No reports match your search query or selected filter.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {filtered.map((report) => {
+                      const isBp = report.reportType === 'bp_report';
+                      const isSugar = report.reportType === 'sugar_report';
+                      const isLab = report.reportType === 'lab_report';
+                      const isRadiology = report.reportType === 'radiology';
+
+                      const badgeStyle = isBp
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : isSugar
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : isLab
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : isRadiology
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200';
+
+                      const isImageAttachment = report.attachment?.fileType?.startsWith('image/') || report.attachment?.fileData?.startsWith('data:image/');
+                      const isPdfAttachment = report.attachment?.fileType === 'application/pdf' || report.attachment?.fileData?.startsWith('data:application/pdf') || report.attachment?.fileName?.toLowerCase()?.endsWith('.pdf');
+
+                      return (
+                        <div
+                          key={report._id}
+                          className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs space-y-3 hover:border-blue-300 transition-all"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h5 className="font-extrabold text-sm text-gray-900">{report.title}</h5>
+                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${badgeStyle}`}>
+                                  {report.reportType?.replace(/_/g, ' ') || 'REPORT'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-gray-500 mt-0.5">
+                                {report.testDate && (
+                                  <>
+                                    Test Date: <strong className="text-gray-700">{new Date(report.testDate).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</strong> •{' '}
+                                  </>
+                                )}
+                                Consulting Doctor: <strong className="text-gray-800">{report.doctorName || 'Physician'}</strong> • Filed: {new Date(report.createdAt).toLocaleDateString([], {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </p>
+                            </div>
+
+                            {report.attachment && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                {isPdfAttachment ? 'PDF Document' : isImageAttachment ? 'Photo / Scan' : 'Attached File'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Primary Diagnosis */}
+                          {report.diagnosis && (
+                            <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-950 flex items-start gap-1.5">
+                              <span className="font-bold text-amber-800 shrink-0">Diagnosis:</span>
+                              <span>{report.diagnosis}</span>
+                            </div>
+                          )}
+
+                          {/* Vitals Highlights */}
+                          {report.vitals && (
+                            <div className="flex flex-wrap gap-2 text-xs">
+                              {(report.vitals.bloodPressure || (report.vitals.systolic && report.vitals.diastolic)) && (
+                                <div className="bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg text-rose-900 flex items-center gap-1 font-medium">
+                                  <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                                  BP:{' '}
+                                  <strong className="font-bold text-rose-950">
+                                    {report.vitals.systolic && report.vitals.diastolic
+                                      ? `${report.vitals.systolic}/${report.vitals.diastolic} mmHg`
+                                      : report.vitals.bloodPressure}
+                                  </strong>
+                                </div>
+                              )}
+
+                              {report.vitals.heartRate && (
+                                <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                  Pulse: <strong className="text-gray-900">{report.vitals.heartRate} bpm</strong>
+                                </span>
+                              )}
+
+                              {(report.vitals.bloodSugar || report.vitals.fastingSugar || report.vitals.postPrandialSugar || report.vitals.hba1c) && (
+                                <div className="bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg text-amber-900 flex items-center gap-1 font-medium">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                                  Glucose:{' '}
+                                  <strong className="font-bold text-amber-950">
+                                    {report.vitals.fastingSugar && `Fasting: ${report.vitals.fastingSugar} mg/dL `}
+                                    {report.vitals.postPrandialSugar && `| PP: ${report.vitals.postPrandialSugar} mg/dL `}
+                                    {report.vitals.hba1c && `| HbA1c: ${report.vitals.hba1c}% `}
+                                    {!report.vitals.fastingSugar && !report.vitals.postPrandialSugar && !report.vitals.hba1c && report.vitals.bloodSugar}
+                                  </strong>
+                                </div>
+                              )}
+
+                              {report.vitals.temperature && (
+                                <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                  Temp: <strong className="text-gray-900">{report.vitals.temperature}</strong>
+                                </span>
+                              )}
+
+                              {report.vitals.weight && (
+                                <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700">
+                                  Weight: <strong className="text-gray-900">{report.vitals.weight}</strong>
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Clinical Observations */}
+                          {report.clinicalNotes && (
+                            <div className="text-xs text-gray-700 space-y-1">
+                              <span className="font-semibold text-gray-500">Observations & Findings:</span>
+                              <p className="bg-gray-50 p-2.5 rounded-lg border border-gray-100 whitespace-pre-line text-xs">
+                                {report.clinicalNotes}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Recommendations */}
+                          {report.recommendations && (
+                            <div className="text-xs text-emerald-950 space-y-1">
+                              <span className="font-semibold text-emerald-700">Doctor's Recommendations:</span>
+                              <p className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200 whitespace-pre-line text-xs font-medium">
+                                {report.recommendations}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Attachment Row */}
+                          {report.attachment && report.attachment.fileData && (
+                            <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-xl">
+                              <div className="flex items-center gap-3">
+                                {isImageAttachment ? (
+                                  <div
+                                    onClick={() => setPreviewAttachment(report.attachment)}
+                                    className="w-12 h-12 rounded-lg overflow-hidden border border-gray-200 bg-white shrink-0 cursor-pointer shadow-xs hover:opacity-90 transition-opacity"
+                                    title="Click to view photo"
+                                  >
+                                    <img
+                                      src={report.attachment.fileData}
+                                      alt={report.attachment.fileName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg bg-red-100 text-red-700 border border-red-200 flex flex-col items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <span className="text-[8px] font-black uppercase">PDF</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-xs font-bold text-gray-900 break-all">
+                                    {report.attachment.fileName || 'Diagnostic Report File'}
+                                  </p>
+                                  <p className="text-[10px] text-gray-500">
+                                    {report.attachment.fileSize ? `${(report.attachment.fileSize / 1024).toFixed(1)} KB` : 'Attached'} • {isPdfAttachment ? 'PDF Document' : 'Photo Attachment'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 self-end sm:self-center">
+                                {isImageAttachment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewAttachment(report.attachment)}
+                                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    Preview Photo
+                                  </button>
+                                )}
+
+                                {isPdfAttachment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newWindow = window.open();
+                                      if (newWindow) {
+                                        newWindow.document.write(
+                                          `<iframe src="${report.attachment.fileData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`
+                                        );
+                                      }
+                                    }}
+                                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    Open PDF
+                                  </button>
+                                )}
+
+                                <a
+                                  href={report.attachment.fileData}
+                                  download={report.attachment.fileName || 'medical-report'}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  Download
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowReportsModal(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+              >
+                Close Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal: Full Resolution Preview of Report Image / Photo / Lab Scan */}
+      {previewAttachment && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPreviewAttachment(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col border border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3.5 bg-gray-900 text-white flex items-center justify-between border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-xs font-bold text-gray-100 truncate max-w-md">
+                  {previewAttachment.fileName || 'Diagnostic Report Photo'}
+                </span>
+                {previewAttachment.fileSize && (
+                  <span className="text-[10px] text-gray-400">
+                    ({(previewAttachment.fileSize / 1024).toFixed(1)} KB)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewAttachment.fileData}
+                  download={previewAttachment.fileName || 'diagnostic-photo'}
+                  className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="text-gray-400 hover:text-white text-xl font-bold p-1 rounded-lg hover:bg-gray-800 cursor-pointer"
+                  title="Close preview"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-950 flex items-center justify-center overflow-auto max-h-[calc(90vh-60px)]">
+              <img
+                src={previewAttachment.fileData}
+                alt={previewAttachment.fileName || 'Diagnostic Attachment'}
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -15,6 +15,7 @@ import caregiverRoutes from './routes/caregiverRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import pharmacistRoutes from './routes/pharmacistRoutes.js';
 import communicationRoutes from './routes/communicationRoutes.js';
+import reportRoutes from './routes/reportRoutes.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { startSmsReminderScheduler } from './services/smsReminderService.js';
 import { startEmailReminderScheduler } from './services/emailReminderService.js';
@@ -62,6 +63,7 @@ app.use('/api/caregivers', caregiverRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/pharmacist', pharmacistRoutes);
 app.use('/api/communications', communicationRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.get('/', (req, res) => {
   res.json({
