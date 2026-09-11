@@ -35,16 +35,24 @@ const emptyPharmacyForm = {
 };
 
 const emptyReportForm = {
-  title: '',
-  reportType: 'consultation',
+  title: 'Blood Pressure Examination Report',
+  reportType: 'bp_report',
+  testDate: new Date().toISOString().split('T')[0],
   diagnosis: '',
   clinicalNotes: '',
+  systolic: '',
+  diastolic: '',
   bloodPressure: '',
   heartRate: '',
-  temperature: '',
+  fastingSugar: '',
+  postPrandialSugar: '',
+  randomSugar: '',
+  hba1c: '',
   bloodSugar: '',
+  temperature: '',
   weight: '',
   recommendations: '',
+  attachment: null, // { fileName, fileType, fileData, fileSize }
 };
 
 const CATALOG_CATEGORIES = [
@@ -125,6 +133,7 @@ export default function DoctorDashboard() {
   const [savingReport, setSavingReport] = useState(false);
   const [reportError, setReportError] = useState('');
   const [reportSuccess, setReportSuccess] = useState('');
+  const [previewAttachment, setPreviewAttachment] = useState(null);
 
   const [medStep, setMedStep] = useState(1); // 1 = Details, 2 = OTP Verification
   const [medForm, setMedForm] = useState({ ...emptyMedForm });
@@ -760,10 +769,49 @@ export default function DoctorDashboard() {
       handleOpenReportAccessModal();
       return;
     }
-    setReportForm({ ...emptyReportForm });
+    setReportForm({
+      ...emptyReportForm,
+      testDate: new Date().toISOString().split('T')[0],
+      attachment: null,
+    });
     setReportError('');
     setReportSuccess('');
     setShowAddReportModal(true);
+  };
+
+  const handleReportFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      setReportError('File size exceeds 25MB limit. Please upload a smaller image or PDF.');
+      return;
+    }
+
+    setReportError('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      setReportForm((prev) => ({
+        ...prev,
+        attachment: {
+          fileName: file.name,
+          fileType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+          fileData: reader.result,
+          fileSize: file.size,
+        },
+      }));
+    };
+    reader.onerror = () => {
+      setReportError('Failed to read file attachment. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveReportAttachment = () => {
+    setReportForm((prev) => ({
+      ...prev,
+      attachment: null,
+    }));
   };
 
   const handleSaveClinicalReport = async (e) => {
@@ -775,26 +823,46 @@ export default function DoctorDashboard() {
     setReportError('');
     setSavingReport(true);
     try {
+      const bpVal = reportForm.systolic && reportForm.diastolic
+        ? `${reportForm.systolic}/${reportForm.diastolic} mmHg`
+        : (reportForm.bloodPressure ? reportForm.bloodPressure.trim() : '');
+
+      const sugarParts = [];
+      if (reportForm.fastingSugar) sugarParts.push(`Fasting: ${reportForm.fastingSugar} mg/dL`);
+      if (reportForm.postPrandialSugar) sugarParts.push(`PP: ${reportForm.postPrandialSugar} mg/dL`);
+      if (reportForm.randomSugar) sugarParts.push(`Random: ${reportForm.randomSugar} mg/dL`);
+      if (reportForm.hba1c) sugarParts.push(`HbA1c: ${reportForm.hba1c}%`);
+      const sugarVal = sugarParts.length > 0 ? sugarParts.join(' | ') : (reportForm.bloodSugar ? reportForm.bloodSugar.trim() : '');
+
       await doctorApi.addReport(selectedPatientId, {
         title: reportForm.title.trim(),
         reportType: reportForm.reportType,
+        testDate: reportForm.testDate || new Date().toISOString().split('T')[0],
         diagnosis: reportForm.diagnosis.trim(),
         clinicalNotes: reportForm.clinicalNotes.trim(),
         vitals: {
-          bloodPressure: reportForm.bloodPressure.trim(),
-          heartRate: reportForm.heartRate.trim(),
-          temperature: reportForm.temperature.trim(),
-          bloodSugar: reportForm.bloodSugar.trim(),
-          weight: reportForm.weight.trim(),
+          bloodPressure: bpVal,
+          systolic: reportForm.systolic?.trim() || '',
+          diastolic: reportForm.diastolic?.trim() || '',
+          heartRate: reportForm.heartRate?.trim() || '',
+          temperature: reportForm.temperature?.trim() || '',
+          bloodSugar: sugarVal,
+          fastingSugar: reportForm.fastingSugar?.trim() || '',
+          postPrandialSugar: reportForm.postPrandialSugar?.trim() || '',
+          hba1c: reportForm.hba1c?.trim() || '',
+          weight: reportForm.weight?.trim() || '',
         },
         recommendations: reportForm.recommendations.trim(),
+        attachment: reportForm.attachment || null,
       });
-      setReportSuccess('Clinical report successfully transferred to patient records database!');
+
+      setReportSuccess('Diagnostic report & attachment successfully saved to patient records!');
       await fetchClinicalData(selectedPatientId, reportDays);
       setTimeout(() => {
         setShowAddReportModal(false);
         setReportSuccess('');
-      }, 1200);
+        setActiveTab('report');
+      }, 1000);
     } catch (err) {
       setReportError(err.message || 'Failed to save report to patient database.');
     } finally {
@@ -1089,13 +1157,24 @@ export default function DoctorDashboard() {
                   {/* Actions in Header */}
                   <div className="flex items-center gap-2 self-start sm:self-auto">
                     <button
+                      type="button"
+                      onClick={handleOpenAddReport}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      + Add Report
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setMedForm({ ...emptyMedForm });
                         setMedStep(1);
                         setMedError('');
                         setShowMedModal(true);
                       }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -1493,86 +1572,226 @@ export default function DoctorDashboard() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {clinicalData.reports.map((report) => (
-                          <div
-                            key={report._id}
-                            className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs space-y-3 hover:border-blue-300 transition-colors"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h5 className="font-bold text-sm text-gray-900">{report.title}</h5>
-                                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                                    {report.reportType?.replace(/_/g, ' ')}
-                                  </span>
+                        {clinicalData.reports.map((report) => {
+                          const isBpReport = report.reportType === 'bp_report';
+                          const isSugarReport = report.reportType === 'sugar_report';
+                          const isLabReport = report.reportType === 'lab_report';
+                          const isRadiology = report.reportType === 'radiology';
+
+                          const badgeStyle = isBpReport
+                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                            : isSugarReport
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : isLabReport
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : isRadiology
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200';
+
+                          const isImageAttachment = report.attachment?.fileType?.startsWith('image/') || report.attachment?.fileData?.startsWith('data:image/');
+                          const isPdfAttachment = report.attachment?.fileType === 'application/pdf' || report.attachment?.fileData?.startsWith('data:application/pdf') || report.attachment?.fileName?.toLowerCase()?.endsWith('.pdf');
+
+                          return (
+                            <div
+                              key={report._id}
+                              className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs space-y-3 hover:border-blue-300 transition-colors"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="font-bold text-sm text-gray-900">{report.title}</h5>
+                                    <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${badgeStyle}`}>
+                                      {report.reportType?.replace(/_/g, ' ') || 'CLINICAL REPORT'}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {report.testDate && (
+                                      <>
+                                        Test Date: <strong className="text-gray-700">{new Date(report.testDate).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</strong> •{' '}
+                                      </>
+                                    )}
+                                    Consulting Doctor: <strong className="text-gray-700">{report.doctorName || 'Physician'}</strong> • Filed: {new Date(report.createdAt).toLocaleDateString([], {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric',
+                                    })}
+                                  </p>
                                 </div>
-                                <p className="text-[11px] text-gray-500 mt-0.5">
-                                  Consulting Doctor: <strong className="text-gray-700">{report.doctorName || 'Physician'}</strong> • {new Date(report.createdAt).toLocaleDateString([], {
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                  })}
-                                </p>
+
+                                {report.attachment && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 flex items-center gap-1">
+                                      <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                      </svg>
+                                      Attached: {isPdfAttachment ? 'PDF Document' : isImageAttachment ? 'Photo / Scan' : 'Report File'}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
+
+                              {report.diagnosis && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900">
+                                  <span className="font-bold text-amber-800">Primary Diagnosis / Indication: </span>
+                                  <span>{report.diagnosis}</span>
+                                </div>
+                              )}
+
+                              {/* Vitals Strip */}
+                              {report.vitals && (
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  {(report.vitals.bloodPressure || (report.vitals.systolic && report.vitals.diastolic)) && (
+                                    <div className="bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg text-rose-900 flex items-center gap-1 font-medium">
+                                      <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                                      BP: <strong className="font-bold text-rose-950">
+                                        {report.vitals.systolic && report.vitals.diastolic 
+                                          ? `${report.vitals.systolic}/${report.vitals.diastolic} mmHg`
+                                          : report.vitals.bloodPressure}
+                                      </strong>
+                                    </div>
+                                  )}
+                                  {report.vitals.heartRate && (
+                                    <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
+                                      Pulse: <strong className="text-gray-900">{report.vitals.heartRate} bpm</strong>
+                                    </span>
+                                  )}
+                                  {(report.vitals.bloodSugar || report.vitals.fastingSugar || report.vitals.postPrandialSugar || report.vitals.hba1c) && (
+                                    <div className="bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg text-amber-900 flex items-center gap-1 font-medium">
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                                      Glucose:{' '}
+                                      <strong className="font-bold text-amber-950">
+                                        {report.vitals.fastingSugar && `Fasting: ${report.vitals.fastingSugar} mg/dL `}
+                                        {report.vitals.postPrandialSugar && `| PP: ${report.vitals.postPrandialSugar} mg/dL `}
+                                        {report.vitals.hba1c && `| HbA1c: ${report.vitals.hba1c}% `}
+                                        {!report.vitals.fastingSugar && !report.vitals.postPrandialSugar && !report.vitals.hba1c && report.vitals.bloodSugar}
+                                      </strong>
+                                    </div>
+                                  )}
+                                  {report.vitals.temperature && (
+                                    <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
+                                      Temp: <strong className="text-gray-900">{report.vitals.temperature}</strong>
+                                    </span>
+                                  )}
+                                  {report.vitals.weight && (
+                                    <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
+                                      Weight: <strong className="text-gray-900">{report.vitals.weight}</strong>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Attachment Box / Viewer */}
+                              {report.attachment && report.attachment.fileData && (
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3">
+                                    {isImageAttachment ? (
+                                      <div
+                                        onClick={() => setPreviewAttachment(report.attachment)}
+                                        className="relative group cursor-pointer w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-white shrink-0 shadow-xs"
+                                        title="Click to expand full image"
+                                      >
+                                        <img
+                                          src={report.attachment.fileData}
+                                          alt={report.attachment.fileName || 'Report attachment'}
+                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                        />
+                                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                          </svg>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="w-14 h-14 rounded-lg bg-red-100 text-red-700 border border-red-200 flex flex-col items-center justify-center shrink-0">
+                                        <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span className="text-[9px] font-black tracking-wider uppercase mt-0.5">PDF</span>
+                                      </div>
+                                    )}
+
+                                    <div>
+                                      <p className="text-xs font-bold text-gray-800 break-all">
+                                        {report.attachment.fileName || 'Diagnostic Report File'}
+                                      </p>
+                                      <p className="text-[10px] text-gray-500 mt-0.5">
+                                        {report.attachment.fileSize
+                                          ? `${(report.attachment.fileSize / 1024).toFixed(1)} KB`
+                                          : 'Attachment Available'}{' '}
+                                        • {isPdfAttachment ? 'Adobe Acrobat PDF' : isImageAttachment ? 'High-Res Photo' : 'Clinical Document'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 self-end sm:self-center">
+                                    {isImageAttachment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewAttachment(report.attachment)}
+                                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                        Preview Photo
+                                      </button>
+                                    )}
+
+                                    {isPdfAttachment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newWindow = window.open();
+                                          if (newWindow) {
+                                            newWindow.document.write(
+                                              `<iframe src="${report.attachment.fileData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`
+                                            );
+                                          }
+                                        }}
+                                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                        Open PDF
+                                      </button>
+                                    )}
+
+                                    <a
+                                      href={report.attachment.fileData}
+                                      download={report.attachment.fileName || 'patient-report'}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                      Download
+                                    </a>
+                                  </div>
+                                </div>
+                              )}
+
+                              {report.clinicalNotes && (
+                                <div className="text-xs text-gray-700 space-y-1">
+                                  <span className="font-semibold text-gray-600">Clinical Observations & Findings:</span>
+                                  <p className="bg-gray-50 p-2.5 rounded-lg border border-gray-100 whitespace-pre-line">
+                                    {report.clinicalNotes}
+                                  </p>
+                                </div>
+                              )}
+
+                              {report.recommendations && (
+                                <div className="text-xs text-emerald-900 space-y-1">
+                                  <span className="font-semibold text-emerald-800">Recommendations & Follow-Up:</span>
+                                  <p className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200 whitespace-pre-line">
+                                    {report.recommendations}
+                                  </p>
+                                </div>
+                              )}
                             </div>
-
-                            {report.diagnosis && (
-                              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900">
-                                <span className="font-bold text-amber-800">Primary Diagnosis: </span>
-                                <span>{report.diagnosis}</span>
-                              </div>
-                            )}
-
-                            {/* Vitals Strip */}
-                            {report.vitals && Object.values(report.vitals).some((v) => v) && (
-                              <div className="flex flex-wrap gap-2 text-xs">
-                                {report.vitals.bloodPressure && (
-                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
-                                    BP: <strong className="text-gray-900">{report.vitals.bloodPressure}</strong>
-                                  </span>
-                                )}
-                                {report.vitals.heartRate && (
-                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
-                                    Pulse: <strong className="text-gray-900">{report.vitals.heartRate}</strong>
-                                  </span>
-                                )}
-                                {report.vitals.temperature && (
-                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
-                                    Temp: <strong className="text-gray-900">{report.vitals.temperature}</strong>
-                                  </span>
-                                )}
-                                {report.vitals.bloodSugar && (
-                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
-                                    Glucose: <strong className="text-gray-900">{report.vitals.bloodSugar}</strong>
-                                  </span>
-                                )}
-                                {report.vitals.weight && (
-                                  <span className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-700">
-                                    Weight: <strong className="text-gray-900">{report.vitals.weight}</strong>
-                                  </span>
-                                )}
-                              </div>
-                            )}
-
-                            {report.clinicalNotes && (
-                              <div className="text-xs text-gray-700 space-y-1">
-                                <span className="font-semibold text-gray-600">Clinical Observations & Findings:</span>
-                                <p className="bg-gray-50 p-2.5 rounded-lg border border-gray-100 whitespace-pre-line">
-                                  {report.clinicalNotes}
-                                </p>
-                              </div>
-                            )}
-
-                            {report.recommendations && (
-                              <div className="text-xs text-emerald-900 space-y-1">
-                                <span className="font-semibold text-emerald-800">Recommendations & Follow-Up:</span>
-                                <p className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200 whitespace-pre-line">
-                                  {report.recommendations}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2939,176 +3158,449 @@ export default function DoctorDashboard() {
         </div>
       )}
 
-      {/* MODAL: Add Clinical Report / Consultation Note to Patient Database */}
+      {/* MODAL: Add Clinical / Diagnostic Report with File, PDF, Photo upload to Patient DB */}
       {showAddReportModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-200 max-h-[92vh] flex flex-col my-auto animate-in fade-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50/50 to-indigo-50/30 shrink-0">
               <div>
-                <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                  Patient Health Records DB
-                </span>
-                <h3 className="text-base font-extrabold text-gray-900 mt-1">
-                  Add Clinical Report / Consultation Note
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider bg-blue-100/80 px-2 py-0.5 rounded-full border border-blue-200">
+                    Patient Medical Dossier
+                  </span>
+                  <span className="text-[10px] font-semibold text-gray-500">
+                    ID: {selectedPatientId?.slice(-6)?.toUpperCase()}
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-gray-900 mt-1 flex items-center gap-2">
+                  Add Patient Diagnostic & Clinical Report
                 </h3>
-                <p className="text-xs text-gray-500">
-                  Patient: {selectedPatientObj?.name} ({selectedPatientObj?.phone})
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Patient: <strong className="text-gray-900">{selectedPatientObj?.name}</strong> • Phone: {selectedPatientObj?.phone}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddReportModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-lg font-bold cursor-pointer"
+                className="text-gray-400 hover:text-gray-700 text-xl font-bold p-1 rounded-lg hover:bg-white transition-colors cursor-pointer"
+                title="Close"
               >
                 &times;
               </button>
             </div>
 
             {reportError && (
-              <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg">
-                {reportError}
+              <div className="mx-6 mt-3 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
+                <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{reportError}</span>
               </div>
             )}
 
             {reportSuccess && (
-              <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-lg text-center">
-                {reportSuccess}
+              <div className="mx-6 mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-lg text-center flex items-center justify-center gap-2">
+                <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>{reportSuccess}</span>
               </div>
             )}
 
             <form onSubmit={handleSaveClinicalReport} className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Report Classification Quick Tabs */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Report Title *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cardiology Assessment & ECG Review"
-                  value={reportForm.title}
-                  onChange={(e) => setReportForm({ ...reportForm, title: e.target.value })}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  autoFocus
-                />
-              </div>
+                <label className="block font-bold text-gray-700 mb-1.5">
+                  Select Diagnostic Report Category
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[
+                    { id: 'bp_report', label: 'Blood Pressure (BP)', defaultTitle: 'Blood Pressure Examination Report', color: 'rose' },
+                    { id: 'sugar_report', label: 'Blood Sugar / Glucose', defaultTitle: 'Blood Sugar & Glucose Test Report', color: 'amber' },
+                    { id: 'lab_report', label: 'Lab / Pathology', defaultTitle: 'Pathology & Lab Diagnostics Report', color: 'blue' },
+                    { id: 'radiology', label: 'Radiology / Scan', defaultTitle: 'Radiology & Imaging Report', color: 'purple' },
+                    { id: 'consultation', label: 'Clinical Consultation', defaultTitle: 'Clinical Consultation & Physical Examination', color: 'indigo' },
+                  ].map((cat) => {
+                    const active = reportForm.reportType === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          const currentIsDefault = [
+                            'Blood Pressure Examination Report',
+                            'Blood Sugar & Glucose Test Report',
+                            'Pathology & Lab Diagnostics Report',
+                            'Radiology & Imaging Report',
+                            'Clinical Consultation & Physical Examination',
+                            '',
+                          ].includes(reportForm.title);
 
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Report Classification</label>
-                <select
-                  value={reportForm.reportType}
-                  onChange={(e) => setReportForm({ ...reportForm, reportType: e.target.value })}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="consultation">Clinical Consultation Note</option>
-                  <option value="diagnosis">Diagnostic Assessment</option>
-                  <option value="lab_report">Lab / Pathology Report Review</option>
-                  <option value="progress_note">Progress Note</option>
-                  <option value="discharge_summary">Discharge Summary</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Clinical Diagnosis</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Stage 1 Hypertension, Type 2 Diabetes Mellitus"
-                  value={reportForm.diagnosis}
-                  onChange={(e) => setReportForm({ ...reportForm, diagnosis: e.target.value })}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Patient Vitals */}
-              <div className="space-y-1.5">
-                <label className="block font-bold text-gray-700">Patient Vital Signs (Optional)</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div>
-                    <span className="text-[11px] text-gray-500">Blood Pressure</span>
-                    <input
-                      type="text"
-                      placeholder="120/80 mmHg"
-                      value={reportForm.bloodPressure}
-                      onChange={(e) => setReportForm({ ...reportForm, bloodPressure: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-gray-500">Heart Rate</span>
-                    <input
-                      type="text"
-                      placeholder="72 bpm"
-                      value={reportForm.heartRate}
-                      onChange={(e) => setReportForm({ ...reportForm, heartRate: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-gray-500">Temperature</span>
-                    <input
-                      type="text"
-                      placeholder="98.6 °F"
-                      value={reportForm.temperature}
-                      onChange={(e) => setReportForm({ ...reportForm, temperature: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-gray-500">Blood Sugar</span>
-                    <input
-                      type="text"
-                      placeholder="110 mg/dL"
-                      value={reportForm.bloodSugar}
-                      onChange={(e) => setReportForm({ ...reportForm, bloodSugar: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-gray-500">Weight</span>
-                    <input
-                      type="text"
-                      placeholder="70 kg"
-                      value={reportForm.weight}
-                      onChange={(e) => setReportForm({ ...reportForm, weight: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
+                          setReportForm((prev) => ({
+                            ...prev,
+                            reportType: cat.id,
+                            title: currentIsDefault ? cat.defaultTitle : prev.title,
+                          }));
+                        }}
+                        className={`px-3 py-2 text-xs font-bold rounded-lg border text-center transition-all cursor-pointer ${
+                          active
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
+              {/* Title and Date Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-gray-700 mb-1">
+                    Report Title *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Blood Pressure Examination Report"
+                    value={reportForm.title}
+                    onChange={(e) => setReportForm({ ...reportForm, title: e.target.value })}
+                    className="w-full text-xs sm:text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">
+                    Test / Observation Date
+                  </label>
+                  <input
+                    type="date"
+                    value={reportForm.testDate}
+                    onChange={(e) => setReportForm({ ...reportForm, testDate: e.target.value })}
+                    className="w-full text-xs sm:text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* DEDICATED SECTION 1: BLOOD PRESSURE METRICS */}
+              {(reportForm.reportType === 'bp_report' || reportForm.systolic || reportForm.diastolic) && (
+                <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-rose-900 text-xs flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                      Blood Pressure (BP) Test Readings
+                    </span>
+                    {/* Live BP Classification */}
+                    {(() => {
+                      const s = parseInt(reportForm.systolic, 10);
+                      const d = parseInt(reportForm.diastolic, 10);
+                      if (!s || !d) return null;
+                      if (s < 120 && d < 80) {
+                        return <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">Normal (&lt;120/80)</span>;
+                      } else if (s >= 120 && s <= 129 && d < 80) {
+                        return <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 border border-yellow-300">Elevated (120-129/&lt;80)</span>;
+                      } else if ((s >= 130 && s <= 139) || (d >= 80 && d <= 89)) {
+                        return <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">Stage 1 HTN (130-139/80-89)</span>;
+                      } else if (s >= 140 || d >= 90) {
+                        return <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-200 text-rose-900 border border-rose-300">Stage 2 HTN (&ge;140/90)</span>;
+                      }
+                      return null;
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Systolic (mmHg) *
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="120"
+                        value={reportForm.systolic}
+                        onChange={(e) => setReportForm({ ...reportForm, systolic: e.target.value })}
+                        className="w-full border border-rose-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Diastolic (mmHg) *
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="80"
+                        value={reportForm.diastolic}
+                        onChange={(e) => setReportForm({ ...reportForm, diastolic: e.target.value })}
+                        className="w-full border border-rose-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Pulse / Heart Rate (bpm)
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="72"
+                        value={reportForm.heartRate}
+                        onChange={(e) => setReportForm({ ...reportForm, heartRate: e.target.value })}
+                        className="w-full border border-rose-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* DEDICATED SECTION 2: BLOOD SUGAR / GLUCOSE METRICS */}
+              {(reportForm.reportType === 'sugar_report' || reportForm.fastingSugar || reportForm.postPrandialSugar || reportForm.hba1c) && (
+                <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                      Blood Glucose / Diabetes Profile
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-medium">Standard Reference Values Included</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Fasting Sugar (mg/dL)
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="95 (Norm: 70-99)"
+                        value={reportForm.fastingSugar}
+                        onChange={(e) => setReportForm({ ...reportForm, fastingSugar: e.target.value })}
+                        className="w-full border border-amber-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Post-Prandial / PP (mg/dL)
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="130 (Norm: <140)"
+                        value={reportForm.postPrandialSugar}
+                        onChange={(e) => setReportForm({ ...reportForm, postPrandialSugar: e.target.value })}
+                        className="w-full border border-amber-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        Random Glucose (mg/dL)
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="110"
+                        value={reportForm.randomSugar}
+                        onChange={(e) => setReportForm({ ...reportForm, randomSugar: e.target.value })}
+                        className="w-full border border-amber-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-gray-700 block mb-0.5">
+                        HbA1c Glycated (%)
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="5.6 (Norm: <5.7%)"
+                        value={reportForm.hba1c}
+                        onChange={(e) => setReportForm({ ...reportForm, hba1c: e.target.value })}
+                        className="w-full border border-amber-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* General Vitals (for other report types) */}
+              {reportForm.reportType !== 'bp_report' && reportForm.reportType !== 'sugar_report' && (
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-gray-700">Patient Vital Signs (Optional)</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div>
+                      <span className="text-[11px] text-gray-500">Blood Pressure</span>
+                      <input
+                        type="text"
+                        placeholder="120/80 mmHg"
+                        value={reportForm.bloodPressure}
+                        onChange={(e) => setReportForm({ ...reportForm, bloodPressure: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-gray-500">Pulse / Heart Rate</span>
+                      <input
+                        type="text"
+                        placeholder="72 bpm"
+                        value={reportForm.heartRate}
+                        onChange={(e) => setReportForm({ ...reportForm, heartRate: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-gray-500">Body Temperature</span>
+                      <input
+                        type="text"
+                        placeholder="98.6 °F"
+                        value={reportForm.temperature}
+                        onChange={(e) => setReportForm({ ...reportForm, temperature: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-gray-500">Weight (kg)</span>
+                      <input
+                        type="text"
+                        placeholder="70 kg"
+                        value={reportForm.weight}
+                        onChange={(e) => setReportForm({ ...reportForm, weight: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Diagnosis Input */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Clinical Observations & Findings</label>
+                <label className="block font-bold text-gray-700 mb-1">
+                  Clinical Diagnosis / Primary Finding
+                </label>
+                <input
+                  type="text"
+                  placeholder={
+                    reportForm.reportType === 'bp_report'
+                      ? 'e.g. Essential Hypertension, Well-Controlled BP'
+                      : reportForm.reportType === 'sugar_report'
+                      ? 'e.g. Type 2 Diabetes Mellitus, Good Glycemic Control'
+                      : 'e.g. Clinical Assessment findings...'
+                  }
+                  value={reportForm.diagnosis}
+                  onChange={(e) => setReportForm({ ...reportForm, diagnosis: e.target.value })}
+                  className="w-full text-xs sm:text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* ATTACHMENT UPLOAD SECTION: FILE, PDF, PHOTO */}
+              <div className="space-y-1.5">
+                <label className="block font-bold text-gray-700">
+                  Attach Diagnostic File / PDF / Test Photo (Optional)
+                </label>
+
+                {!reportForm.attachment ? (
+                  <label className="border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 bg-gray-50/60 hover:bg-blue-50/30 transition-colors cursor-pointer block">
+                    <input
+                      type="file"
+                      accept=".pdf,image/*,.png,.jpg,.jpeg,.webp"
+                      onChange={handleReportFileUpload}
+                      className="hidden"
+                    />
+                    <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold text-gray-800">
+                      Click to upload or drag and drop report file
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Supports PDF documents, Lab scans, or Photo attachments (Max 25MB)
+                    </p>
+                  </label>
+                ) : (
+                  <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {reportForm.attachment.fileType?.startsWith('image/') ? (
+                        <img
+                          src={reportForm.attachment.fileData}
+                          alt="Report preview"
+                          className="w-12 h-12 rounded-lg object-cover border border-blue-200 shadow-2xs"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-red-100 text-red-700 border border-red-200 flex flex-col items-center justify-center">
+                          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="text-[8px] font-black uppercase">PDF</span>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-bold text-gray-900 break-all">
+                          {reportForm.attachment.fileName}
+                        </p>
+                        <p className="text-[10px] text-gray-500">
+                          {(reportForm.attachment.fileSize / 1024).toFixed(1)} KB • Ready to attach
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRemoveReportAttachment}
+                      className="text-xs font-semibold text-red-600 hover:text-red-800 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                    >
+                      Remove File
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Clinical Observations */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">
+                  Clinical Observations & Diagnostic Remarks
+                </label>
                 <textarea
                   rows={3}
-                  placeholder="Document patient symptoms, exam findings, lab results, and diagnostic notes..."
+                  placeholder="Document patient symptoms, exam remarks, lab trends, and findings..."
                   value={reportForm.clinicalNotes}
                   onChange={(e) => setReportForm({ ...reportForm, clinicalNotes: e.target.value })}
                   className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
 
+              {/* Recommendations */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Recommendations & Treatment Plan</label>
+                <label className="block font-bold text-gray-700 mb-1">
+                  Recommendations & Follow-Up Plan
+                </label>
                 <textarea
                   rows={2}
-                  placeholder="Dietary changes, medication advice, follow-up timeline..."
+                  placeholder="Dosage adjustments, dietary recommendations, scheduled repeat tests..."
                   value={reportForm.recommendations}
                   onChange={(e) => setReportForm({ ...reportForm, recommendations: e.target.value })}
                   className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
 
+              {/* Action Buttons */}
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowAddReportModal(false)}
-                  className="text-xs text-gray-600 hover:text-gray-900 px-4 py-2 font-medium cursor-pointer"
+                  className="text-xs text-gray-600 hover:text-gray-900 px-4 py-2.5 font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingReport || !reportForm.title.trim()}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
                 >
-                  {savingReport ? 'Saving to Database...' : 'Save Report to Patient DB'}
+                  {savingReport ? (
+                    'Saving to Database...'
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                      Save Report to Patient DB
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -3569,6 +4061,63 @@ export default function DoctorDashboard() {
               </>
             )}
           </form>
+        </div>
+      )}
+
+      {/* Lightbox Modal: Full Resolution Preview of Report Image / Photo / Lab Scan */}
+      {previewAttachment && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPreviewAttachment(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col border border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3.5 bg-gray-900 text-white flex items-center justify-between border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-xs font-bold text-gray-100 truncate max-w-md">
+                  {previewAttachment.fileName || 'Diagnostic Report Photo'}
+                </span>
+                {previewAttachment.fileSize && (
+                  <span className="text-[10px] text-gray-400">
+                    ({(previewAttachment.fileSize / 1024).toFixed(1)} KB)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewAttachment.fileData}
+                  download={previewAttachment.fileName || 'diagnostic-photo'}
+                  className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="text-gray-400 hover:text-white text-xl font-bold p-1 rounded-lg hover:bg-gray-800 cursor-pointer"
+                  title="Close preview"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-950 flex items-center justify-center overflow-auto max-h-[calc(90vh-60px)]">
+              <img
+                src={previewAttachment.fileData}
+                alt={previewAttachment.fileName || 'Diagnostic Attachment'}
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -679,7 +679,17 @@ export const adjustDosage = async (req, res) => {
 export const addClinicalReport = async (req, res) => {
   try {
     const { patientId } = req.params;
-    const { title, reportType, diagnosis, clinicalNotes, vitals, recommendations, otp } = req.body;
+    const {
+      title,
+      reportType,
+      diagnosis,
+      clinicalNotes,
+      vitals,
+      recommendations,
+      attachment,
+      testDate,
+      otp,
+    } = req.body;
 
     if (!title || !title.trim()) {
       return res.status(400).json({ success: false, message: 'Report title is required.' });
@@ -720,6 +730,17 @@ export const addClinicalReport = async (req, res) => {
       }
     }
 
+    // Auto-link doctor if treated directly
+    if (!link) {
+      link = await DoctorPatientLink.create({
+        doctorId: req.user._id,
+        patientId: patient._id,
+        status: 'active',
+        accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        lastAccessGrantedAt: new Date(),
+      });
+    }
+
     // Clinical report added by physician directly into patient records
 
     const doctorDisplay = req.user.name
@@ -731,10 +752,12 @@ export const addClinicalReport = async (req, res) => {
       doctorId: req.user._id,
       doctorName: doctorDisplay,
       title: title.trim(),
-      reportType: reportType || 'consultation',
+      reportType: reportType || 'bp_report',
       diagnosis: diagnosis || '',
       clinicalNotes: clinicalNotes || '',
       vitals: vitals || {},
+      attachment: attachment || { fileName: '', fileType: '', fileData: '', fileSize: 0 },
+      testDate: testDate ? new Date(testDate) : new Date(),
       recommendations: recommendations || '',
       status: 'final',
     });
