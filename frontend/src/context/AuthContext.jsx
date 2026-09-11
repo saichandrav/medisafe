@@ -39,13 +39,17 @@ export const AuthProvider = ({ children }) => {
 
   const loginSuccess = (data) => {
     setSessionExpiredMessage('');
-    if (data.user) setUser(data.user);
+    if (data?.token) {
+      localStorage.setItem('medsafe_token', data.token);
+    }
+    if (data?.user) setUser(data.user);
   };
 
   const logout = async () => {
     try {
       await authApi.logout();
     } catch {}
+    localStorage.removeItem('medsafe_token');
     setUser(null);
     setSessionExpiredMessage('');
   };

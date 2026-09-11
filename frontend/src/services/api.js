@@ -6,20 +6,23 @@ if (!rawBase.endsWith('/api')) {
 const API = rawBase;
 
 const request = async (endpoint, options = {}) => {
+  const token = localStorage.getItem('medsafe_token');
   const headers = {
     'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
   const response = await fetch(`${API}${endpoint}`, {
     ...options,
     headers,
-    credentials: 'include', // Transmit and store httpOnly, Secure, SameSite=strict session cookies
+    credentials: 'include', // Transmit and store cookies
   });
   const data = await response.json();
 
   if (!response.ok) {
     if (response.status === 401 && !endpoint.startsWith('/auth/me') && !endpoint.startsWith('/auth/send-otp') && !endpoint.startsWith('/auth/verify-otp')) {
+      localStorage.removeItem('medsafe_token');
       window.dispatchEvent(
         new CustomEvent('medsafe_session_expired', {
           detail: { message: data.message || 'Your session has expired. Please log in again to continue.' },

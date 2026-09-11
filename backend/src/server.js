@@ -23,6 +23,9 @@ import { startEmailReminderScheduler } from './services/emailReminderService.js'
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust reverse proxy (Render, AWS, Heroku) for accurate IP resolution in rate-limiters & cookies
+app.set('trust proxy', 1);
+
 // Parse and normalize CLIENT_URL (handles comma-separated lists and removes trailing slashes)
 const rawClientUrls = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(',').map((u) => u.trim().replace(/\/+$/, ''))
