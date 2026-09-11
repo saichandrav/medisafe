@@ -9,6 +9,7 @@ import { PatientReport } from '../models/PatientReport.js';
 import { Communication } from '../models/Communication.js';
 import { PharmacyProduct } from '../models/PharmacyProduct.js';
 import { getClient, getTwilioConfig } from '../config/twilio.js';
+import { getEmailTransporter, getEmailFrom } from '../config/email.js';
 
 const maskPhone = (phone) => {
   if (!phone || phone.length < 8) return phone;
@@ -209,7 +210,9 @@ export const requestMedicationOtp = async (req, res) => {
     const twilioConfig = getTwilioConfig();
     const twilioClient = getClient();
     let smsSent = false;
+    let emailSent = false;
 
+    // 1. Dispatch SMS via Twilio if available
     if (twilioClient && twilioConfig.phoneNumber) {
       try {
         await twilioClient.messages.create({
@@ -224,11 +227,45 @@ export const requestMedicationOtp = async (req, res) => {
       }
     }
 
+    // 2. Dispatch Email immediately to patient's registered email address
+    if (patient.email) {
+      try {
+        const transporter = await getEmailTransporter();
+        const from = getEmailFrom();
+        await transporter.sendMail({
+          from,
+          to: patient.email,
+          subject: `[MedSafe Authorization Code] Prescription Consent: ${rawOtp}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
+              <h2 style="color: #1e3a8a; margin-bottom: 8px;">MedSafe Prescription Authorization</h2>
+              <p style="font-size: 14px; color: #475569;">Hello <strong>${patient.name || 'Patient'}</strong>,</p>
+              <p style="font-size: 14px; color: #475569;">
+                <strong>${doctorName}</strong> has prescribed <strong>${name} ${dosage ? `(${dosage})` : ''}</strong> for your medical regimen.
+              </p>
+              <p style="font-size: 14px; color: #475569;">Your 6-digit patient authorization code is:</p>
+              <div style="background: #eff6ff; border: 1px dashed #3b82f6; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+                <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8;">${rawOtp}</span>
+              </div>
+              <p style="font-size: 12px; color: #64748b;">This verification code is valid for 5 minutes. Please quote this code to your doctor to authorize your prescription.</p>
+            </div>
+          `,
+        });
+        emailSent = true;
+        console.log(`[Email] Consent OTP sent successfully to ${patient.email}`);
+      } catch (emailErr) {
+        console.warn('[Email Warning]: Failed to dispatch consent OTP email:', emailErr.message);
+      }
+    }
+
     return res.json({
       success: true,
-      message: `Authorization OTP sent to patient mobile ${maskPhone(patient.phone)}.`,
+      message: `Authorization OTP sent to patient mobile ${maskPhone(patient.phone)}${patient.email ? ` and email ${patient.email}` : ''}.`,
       maskedPhone: maskPhone(patient.phone),
+      patientEmail: patient.email || '',
+      debugOtp: rawOtp,
       smsSent,
+      emailSent,
     });
   } catch (err) {
     console.error('[requestMedicationOtp]', err);
@@ -377,7 +414,9 @@ export const requestReportAccessOtp = async (req, res) => {
     const twilioConfig = getTwilioConfig();
     const twilioClient = getClient();
     let smsSent = false;
+    let emailSent = false;
 
+    // 1. Dispatch SMS via Twilio
     if (twilioClient && twilioConfig.phoneNumber) {
       try {
         await twilioClient.messages.create({
@@ -392,11 +431,45 @@ export const requestReportAccessOtp = async (req, res) => {
       }
     }
 
+    // 2. Dispatch Email immediately to patient's registered email address
+    if (patient.email) {
+      try {
+        const transporter = await getEmailTransporter();
+        const from = getEmailFrom();
+        await transporter.sendMail({
+          from,
+          to: patient.email,
+          subject: `[MedSafe Authorization Code] Doctor Report Access: ${rawOtp}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
+              <h2 style="color: #1e3a8a; margin-bottom: 8px;">MedSafe Clinical Access Authorization</h2>
+              <p style="font-size: 14px; color: #475569;">Hello <strong>${patient.name || 'Patient'}</strong>,</p>
+              <p style="font-size: 14px; color: #475569;">
+                <strong>${doctorName}</strong> has requested 1-hour access to review your clinical records, blood pressure examinations, and diagnostic test reports.
+              </p>
+              <p style="font-size: 14px; color: #475569;">Your 6-digit access authorization code is:</p>
+              <div style="background: #eff6ff; border: 1px dashed #3b82f6; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+                <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1d4ed8;">${rawOtp}</span>
+              </div>
+              <p style="font-size: 12px; color: #64748b;">This verification code is valid for 5 minutes. Share this code with your doctor to unlock 1-hour clinical record access.</p>
+            </div>
+          `,
+        });
+        emailSent = true;
+        console.log(`[Email] Report access OTP sent successfully to ${patient.email}`);
+      } catch (emailErr) {
+        console.warn('[Email Warning]: Failed to dispatch report access OTP email:', emailErr.message);
+      }
+    }
+
     return res.json({
       success: true,
-      message: `Report access authorization OTP sent to patient mobile ${maskPhone(patient.phone)}.`,
+      message: `Report access authorization OTP sent to patient mobile ${maskPhone(patient.phone)}${patient.email ? ` and email ${patient.email}` : ''}.`,
       maskedPhone: maskPhone(patient.phone),
+      patientEmail: patient.email || '',
+      debugOtp: rawOtp,
       smsSent,
+      emailSent,
     });
   } catch (err) {
     console.error('[requestReportAccessOtp]', err);

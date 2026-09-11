@@ -3093,9 +3093,29 @@ export default function DoctorDashboard() {
                         Enter Patient Authorization Code
                       </h4>
                       <p className="text-xs text-gray-500">
-                        A 6-digit OTP code was sent to <strong>{maskedPhone}</strong> for prescription consent.
+                        A 6-digit OTP code was sent to <strong>{maskedPhone}</strong>{selectedPatientObj?.email ? <> and email <strong>{selectedPatientObj.email}</strong></> : null} for prescription consent.
                       </p>
                     </div>
+
+                    {debugOtp && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between text-xs text-blue-950 shadow-xs">
+                        <div>
+                          <div className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Patient Authorization Code:</div>
+                          <div className="font-mono font-black text-lg tracking-widest text-blue-900 mt-0.5">{debugOtp}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const digits = debugOtp.split('').slice(0, 6);
+                            setOtpDigits(digits);
+                            handleConfirmPrescription(debugOtp);
+                          }}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-xs cursor-pointer"
+                        >
+                          Auto-Fill & Confirm
+                        </button>
+                      </div>
+                    )}
 
                     {/* 6-Digit OTP Inputs */}
                     <div className="flex gap-2 justify-center" onPaste={handleOtpPaste}>
@@ -3900,7 +3920,7 @@ export default function DoctorDashboard() {
                   Authorize Report Access (1 Hour)
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Verification code sent to {accessMaskedPhone || 'patient registered mobile'}.
+                  Verification code sent to {accessMaskedPhone || 'patient registered mobile'}{selectedPatientObj?.email ? ` & email ${selectedPatientObj.email}` : ''}.
                 </p>
               </div>
               <button
@@ -3914,12 +3934,31 @@ export default function DoctorDashboard() {
 
             {accessError && (
               <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-lg flex items-center gap-2">
-                
                 <span>{accessError}</span>
               </div>
             )}
 
             <div className="space-y-4">
+              {accessDebugOtp && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between text-xs text-blue-950 shadow-xs">
+                  <div>
+                    <div className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Patient Authorization Code:</div>
+                    <div className="font-mono font-black text-lg tracking-widest text-blue-900 mt-0.5">{accessDebugOtp}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = accessDebugOtp.split('').slice(0, 6);
+                      setAccessOtpDigits(digits);
+                      handleConfirmReportAccess(accessDebugOtp);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-xs cursor-pointer"
+                  >
+                    Auto-Fill & Unlock
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-gray-700 text-center mb-2">
                   Enter 6-Digit Patient Authorization Code
